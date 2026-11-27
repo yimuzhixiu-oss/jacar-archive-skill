@@ -152,16 +152,20 @@ def main() -> int:
         titles: dict[str, str] = {}
         book_ref = ""
         page_no = 1
-        while True:
-            html = client.text(f"https://www.jacar.archives.go.jp/aj/search?fond={fond}&page={page_no}")
-            sp = parse_search(html, page_no)
-            for r in sp.records:
-                titles[r.refcode] = r.title
-                if r.is_book and not book_ref:
-                    book_ref = r.refcode
-            if not sp.has_next or page_no >= sp.last_page:
-                break
-            page_no += 1
+        try:
+            while True:
+                html = client.text(f"https://www.jacar.archives.go.jp/aj/search?fond={fond}&page={page_no}")
+                sp = parse_search(html, page_no)
+                for r in sp.records:
+                    titles[r.refcode] = r.title
+                    if r.is_book and not book_ref:
+                        book_ref = r.refcode
+                if not sp.has_next or page_no >= sp.last_page:
+                    break
+                page_no += 1
+        except Exception as exc:                        # noqa: BLE001
+            skipped.append(f"{book_dir.name}（{type(exc).__name__}: {str(exc)[:40]}）")
+            continue
 
         books_done += 1
         profile = load_profile(profile_dir, fond) if profile_dir else {}
