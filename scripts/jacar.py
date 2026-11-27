@@ -152,6 +152,12 @@ def cmd_probe(args) -> int:
 # ── plan ────────────────────────────────────────────────
 def cmd_plan(args) -> int:
     fond = parse_target(args.target)
+    if not args.base:
+        raise SystemExit(
+            "没有指定 --base，本机也还没存默认值。\n"
+            '可以设一次，以后就不用再传：\n'
+            '  jacar.py config --base "<簿冊所在的「件名」级目录>"'
+        )
     base = Path(args.base).expanduser().resolve()
     if not base.is_dir():
         raise SystemExit(f"base 目录不存在：{base}")
@@ -459,13 +465,15 @@ def cmd_rename_pdfs(args) -> int:
 
 # ── verify ──────────────────────────────────────────────
 def cmd_verify(args) -> int:
+    if not args.base:
+        raise SystemExit("没有指定 --base，本机也还没存默认值（jacar.py config --base …）。")
     base = Path(args.base).expanduser().resolve()
     if not base.is_dir():
         raise SystemExit(f"目录不存在：{base}")
 
     items = pdf = meta = empty = junk = 0
     for d in base.rglob("*"):
-        if not d.is_dir() or d.name.startswith("."):
+        if not d.is_dir() or d.name.startswith(".") or ".jacar" in d.parts:
             continue
         files = [p for p in d.iterdir() if p.is_file()]
         pdfs = [p for p in files if p.suffix.lower() == ".pdf"]
@@ -488,10 +496,85 @@ def cmd_verify(args) -> int:
     return 0
 
 
+# ── 本机配置 ────────────────────────────────────────────
+CONFIG_DIR = Path.home() / ".jacar"
+CONFIG_PATH = CONFIG_DIR / "config.json"
+
+CONFIG_KEYS = {
+    "base": "默认 base 目录（簿冊所在的「件名」级目录）",
+    "delay": "请求间隔秒数",
+    "csv_name": "材料清单文件名",
+    "meta_name": "目錄文件名",
+    "pdf_name": "PDF 命名方式：body=标题正文 / dir=与文件夹同名",
+    "max_name_bytes": "单个名字字节上限",
+    "book_dir": "固定的簿冊目录（可空，空则按标题自动推导）",
+}
+
+
+def load_config() -> dict:
+    if not CONFIG_PATH.is_file():
+        return {}
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        return cfg if isinstance(cfg, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_config(cfg: dict) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = CONFIG_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(CONFIG_PATH)
+
+
+def cmd_config(args) -> int:
+    cfg = load_config()
+
+    if args.reset:
+        if CONFIG_PATH.is_file():
+            CONFIG_PATH.unlink()
+        print("已清除本机配置，之后需要每次传参数。")
+        return 0
+
+    changed = False
+    for key in CONFIG_KEYS:
+        val = getattr(args, key, None)
+        if val is not None:
+            cfg[key] = val
+            changed = True
+    if changed:
+        # 首次保存时把其余默认值一并写入，方便查看和逐项修改
+        for k, v in {
+            "csv_name": DEFAULT_CSV,
+            "meta_name": DEFAULT_META,
+            "pdf_name": "body",
+            "max_name_bytes": 240,
+            "delay": 3.0,
+        }.items():
+            cfg.setdefault(k, v)
+        save_config(cfg)
+
+    if not cfg:
+        print("还没存任何设置。可以这样设一次：\n")
+        print('  jacar.py config --base "<簿冊所在的「件名」级目录>" --delay 2')
+        return 0
+
+    print(("已保存。\n\n" if changed else "") + f"配置文件：{CONFIG_PATH}\n")
+    for k, desc in CONFIG_KEYS.items():
+        if k in cfg:
+            print(f"  {k:16s} = {cfg[k]}")
+            print(f"  {'':16s}   {desc}")
+    return 0
+
+
 # ── CLI ─────────────────────────────────────────────────
 def main() -> int:
+    cfg = load_config()
+
     ap = argparse.ArgumentParser(prog="jacar.py", description="JACAR 史料批量下载")
-    ap.add_argument("--delay", type=float, default=3.0, help="每次请求间隔秒数，默认 3")
+    ap.add_argument("--delay", type=float, default=float(cfg.get("delay", 3.0)),
+                    help=f"每次请求间隔秒数，默认 {cfg.get('delay', 3.0)}")
     ap.add_argument("--retries", type=int, default=3)
     ap.add_argument("--timeout", type=int, default=60)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -502,14 +585,18 @@ def main() -> int:
 
     p = sub.add_parser("plan", help="干跑：只算不动手，出清单")
     p.add_argument("target")
-    p.add_argument("--base", required=True)
-    p.add_argument("--book-dir", default=None, help="直接指定簿冊目录，覆盖自动推导")
-    p.add_argument("--csv-name", default=DEFAULT_CSV)
-    p.add_argument("--meta-name", default=DEFAULT_META)
-    p.add_argument("--max-name-bytes", type=int, default=240)
+    p.add_argument("--base", default=cfg.get("base"),
+                   help="簿冊所在的「件名」级目录；不传则用本机配置")
+    p.add_argument("--book-dir", default=cfg.get("book_dir"),
+                   help="直接指定簿冊目录，覆盖自动推导")
+    p.add_argument("--csv-name", default=cfg.get("csv_name", DEFAULT_CSV))
+    p.add_argument("--meta-name", default=cfg.get("meta_name", DEFAULT_META))
+    p.add_argument("--max-name-bytes", type=int,
+                   default=int(cfg.get("max_name_bytes", 240)))
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--profiles", default=None)
-    p.add_argument("--pdf-name", choices=["body", "dir"], default="body",
+    p.add_argument("--pdf-name", choices=["body", "dir"],
+                   default=cfg.get("pdf_name", "body"),
                    help="PDF 文件名：body=标题正文（默认），dir=与文件夹同名")
     p.set_defaults(func=cmd_plan)
 
@@ -524,9 +611,20 @@ def main() -> int:
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("verify", help="只读检查既有库")
-    p.add_argument("--base", required=True)
+    p.add_argument("--base", default=cfg.get("base"))
     p.add_argument("--regress", action="store_true")
     p.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser("config", help="查看或修改本机默认设置")
+    p.add_argument("--base", default=None)
+    p.add_argument("--delay", type=float, default=None)
+    p.add_argument("--csv-name", default=None)
+    p.add_argument("--meta-name", default=None)
+    p.add_argument("--pdf-name", choices=["body", "dir"], default=None)
+    p.add_argument("--max-name-bytes", type=int, default=None)
+    p.add_argument("--book-dir", default=None)
+    p.add_argument("--reset", action="store_true", help="清除全部设置")
+    p.set_defaults(func=cmd_config)
 
     args = ap.parse_args()
     try:

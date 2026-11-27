@@ -56,6 +56,18 @@ python3 $S verify --base "…"
 
 `--base` 指向「件名」级目录，脚本只在它下面建簿冊与条目目录，不碰上级路径。
 
+### 存一次默认值
+
+反复输入的参数可以固化到本机（`~/.jacar/config.json`，不进版本库）：
+
+```bash
+python3 $S config --base "<件名级目录>" --delay 2
+python3 $S config            # 查看
+python3 $S config --reset    # 清除
+```
+
+之后 `plan` / `verify` 可以省略 `--base` 和 `--delay`。命令行参数始终优先于配置。
+
 把已下载的 PDF 改成正文命名（只重命名，不重下）：
 
 ```bash

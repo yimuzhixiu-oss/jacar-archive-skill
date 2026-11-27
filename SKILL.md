@@ -52,6 +52,8 @@ $PY scripts/jacar.py plan <链接或fond号> --base "<簿冊所在的上级目�
 ```
 
 `--base` 指向**「件名」级目录**（如 `…/露國革命一件`），脚本只在它下面建簿冊与条目目录。
+如果已用 `config` 存过默认值，`--base` 可以省略。
+
 把输出的中文清单**原样转述给用户**，等他确认。
 
 ### 3. 用户确认后执行
@@ -67,6 +69,19 @@ $PY scripts/jacar.py run --plan "<base>/.jacar/plan-<fond>.json" --confirm
 ```bash
 $PY scripts/jacar.py verify --base "<base>"
 ```
+
+## 本机默认设置
+
+常用参数可以存一次，之后省略。配置写在 `~/.jacar/config.json`，不进版本库。
+
+```bash
+$PY scripts/jacar.py config                                  # 查看当前
+$PY scripts/jacar.py config --base "<件名级目录>" --delay 2    # 设置
+$PY scripts/jacar.py config --reset                          # 清除
+```
+
+可存的键：`base`、`delay`、`csv_name`、`meta_name`、`pdf_name`、`max_name_bytes`、`book_dir`。
+命令行参数始终优先于配置。
 
 ## 硬约束
 
