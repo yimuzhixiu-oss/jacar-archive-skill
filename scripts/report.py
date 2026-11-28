@@ -24,10 +24,19 @@ def render_locate(res, root: Path, *, fond: str = "", book_title: str = "") -> s
     L.append(f"要找的文件夹：簿冊标题第一段「{res.item_name}」")
     L.append("")
 
-    if res.kind == "found":
+    if res.kind in ("found", "uncertain"):
         L.append(f"放置位置：{res.base}")
         for n in res.notes:
             L.append(f"  · {n}")
+        if res.kind == "uncertain":
+            L.append("")
+            L.append("但有几点对不上，需要你拍板：")
+            for m in res.mismatches:
+                L.append(f"  ⚠ {m}")
+            L.append("")
+            L.append("位置没错的话，加 --accept 继续：")
+            L.append(f"  jacar.py plan {fond} --accept")
+            L.append("不对的话，用 --base 直接指。")
         return "\n".join(L)
 
     if res.kind == "ambiguous":

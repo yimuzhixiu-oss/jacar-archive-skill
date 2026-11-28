@@ -1,8 +1,8 @@
 """按簿冊标题在史料库中查找「件名级」目录。
 
-不依赖館/系列/門/類/項 的逐级拼接——JACAR 階層与本地目录存在用词差异
-（`６類　諸外国内政` vs `6類 駐外國內政`），逐级走必然断链。
-改为：用簿冊标题第一段在库中找同名目录，階層只用于消歧与建议。
+不依赖館/系列/門/類/項 的逐级拼接——本地目录名未必与 JACAR 階層逐字一致
+（整理时改过名、手打误差、用字习惯不同），逐级走容易中途断掉。
+改为：用簿冊标题第一段在库中找同名目录，階層只用于消歧与事后核对。
 """
 
 from __future__ import annotations
@@ -16,12 +16,13 @@ from naming import book_segments, hier_key, is_noise_dir
 
 @dataclass(slots=True)
 class LocateResult:
-    kind: str                        # found | ambiguous | missing
-    base: Path | None                # kind == found 时的件名级目录
+    kind: str                        # found | uncertain | ambiguous | missing
+    base: Path | None                # found / uncertain 时的件名级目录
     candidates: list[Path]           # ambiguous 时的全部候选
     item_name: str                   # 簿冊标题第一段
     notes: list[str] = field(default_factory=list)
     suggested_parent: Path | None = None   # missing 时建议的上级（通常是「項」级）
+    mismatches: list[str] = field(default_factory=list)  # 与階層对不上的地方
 
 
 def _scan(root: Path, max_depth: int, extra_skip: set[str] | None) -> list[Path]:
@@ -51,6 +52,31 @@ def _filter_by_hierarchy(cands: list[Path], hierarchy: list[str]) -> list[Path]:
     return out
 
 
+def _level_mismatches(base: Path, root: Path, hierarchy: list[str]) -> list[str]:
+    """把命中路径的上级与階層逐级对一遍，有出入就列出来。
+
+    只比前两级（館、系列）——这两级在各馆之间最稳定；門/類/項 的本地命名
+    常被整理者改过，差异属正常，不当作问题上报。
+    另外若层级明显比階層浅，也提示出来。
+    """
+    if not hierarchy:
+        return []
+    try:
+        parts = base.relative_to(root).parts
+    except ValueError:
+        return ["命中路径不在根目录之下"]
+
+    out: list[str] = []
+    for i, want in enumerate(hierarchy[:2]):
+        if i >= len(parts) - 1:      # 最后一段是件名目录本身，不比
+            break
+        if hier_key(parts[i]) != hier_key(want):
+            out.append(f"第 {i + 1} 级「{parts[i]}」与階層「{want}」对不上")
+    if len(parts) - 1 < len(hierarchy) - 1:
+        out.append(f"层级比階層浅（本地 {len(parts) - 1} 级，階層 {len(hierarchy)} 级）")
+    return out
+
+
 def find_item_dir(
     root: Path,
     title: str,
@@ -72,14 +98,17 @@ def find_item_dir(
 
     cands = by_key.get(hier_key(item), [])
     if len(cands) == 1:
-        return LocateResult("found", cands[0], cands, item,
-                            [f"库里「{cands[0].name}」只此一处"])
+        mm = _level_mismatches(cands[0], root, hierarchy)
+        return LocateResult("uncertain" if mm else "found", cands[0], cands, item,
+                            [f"库里「{cands[0].name}」只此一处"], None, mm)
 
     if len(cands) > 1:
         filtered = _filter_by_hierarchy(cands, hierarchy)
         if len(filtered) == 1:
-            return LocateResult("found", filtered[0], cands, item,
-                                [f"库里有 {len(cands)} 处同名，已按階層的類/項锁定"])
+            mm = _level_mismatches(filtered[0], root, hierarchy)
+            return LocateResult("uncertain" if mm else "found", filtered[0], cands, item,
+                                [f"库里有 {len(cands)} 处同名，已按階層的類/項锁定"],
+                                None, mm)
         return LocateResult("ambiguous", None, filtered or cands, item,
                             [f"库里有 {len(cands)} 处同名目录，无法自行判断"])
 

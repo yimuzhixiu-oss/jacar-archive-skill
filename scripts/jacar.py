@@ -213,6 +213,9 @@ def cmd_plan(args) -> int:
     else:
         # 自动定位：用簿冊标题第一段在库中找同名件名目录
         res = find_item_dir(root, book.title, [n.name for n in book.hierarchy])
+        if res.kind == "uncertain" and not getattr(args, "accept", False):
+            print(report.render_locate(res, root, fond=fond, book_title=book.title))
+            return 2
         if res.kind == "ambiguous":
             print(report.render_locate(res, root, fond=fond, book_title=book.title))
             return 2
@@ -674,6 +677,8 @@ def main() -> int:
     p.add_argument("--root", default=None, help="史料库最外层目录，覆盖配置")
     p.add_argument("--create-missing", action="store_true",
                    help="件名目录不存在时，允许按建议位置新建")
+    p.add_argument("--accept", action="store_true",
+                   help="自动定位与階層有出入时，仍按定位结果继续")
     p.add_argument("--book-dir", default=cfg.get("book_dir"),
                    help="直接指定簿冊目录，覆盖自动推导")
     p.add_argument("--csv-name", default=cfg.get("csv_name", DEFAULT_CSV))
