@@ -19,6 +19,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+
+def _ensure_utf8_stdout() -> None:
+    """Windows 控制台默认可能是 GBK，输出日文/全角字符会抛 UnicodeEncodeError。"""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
+_ensure_utf8_stdout()
+
 import report                                              # noqa: E402
 from client import BASE, RateLimited, make_client          # noqa: E402
 from fetcher import download_pdf, export_csv, write_meta_md  # noqa: E402

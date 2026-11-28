@@ -8,7 +8,7 @@ description: >-
   国立公文書館、防卫研究所史料、或给出 jacar.archives.go.jp/aj/search?fond=… 链接并要求
   下载/整理/归档史料时使用。也用于修复既有史料库的命名与缺失元数据。
 metadata:
-  version: 1.0.0
+  version: 1.1.3
   requires:
     binaries: [python3]
     python: [requests, beautifulsoup4, Pillow]
@@ -27,13 +27,26 @@ metadata:
 
 ## 先跑这一步
 
+确认解释器与依赖。各平台写法不同：
+
 ```bash
-PY=$(for p in /opt/homebrew/bin/python3 python3; do
-  $p -c "import requests,bs4,PIL" 2>/dev/null && echo $p && break; done)
-[ -z "$PY" ] && echo "缺依赖：pip install --user requests beautifulsoup4 Pillow"
+# macOS / Linux
+python3 -c "import requests, bs4, PIL" && echo OK
+
+# Windows (cmd / PowerShell)
+python -c "import requests, bs4, PIL"; if ($?) { echo OK }
+```
+
+缺依赖就装：
+
+```bash
+pip install --user requests beautifulsoup4 Pillow
 ```
 
 脚本目录：`~/.workbuddy/skills/jacar-archive/scripts/`
+
+脚本本身跨平台：Windows 上没有 `fcntl`，进程锁会自动改用 `msvcrt`，
+无需任何额外安装。
 
 ## 四步流程
 

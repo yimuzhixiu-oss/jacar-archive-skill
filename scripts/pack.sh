@@ -1,13 +1,21 @@
 #!/bin/bash
 # 打包 jacar-archive skill，输出到指定目录，供其他 agent / 机器安装。
 #
-# 用法：./pack.sh [输出目录]      默认 /Users/flash/Downloads/浏览器
+# 用法：./pack.sh [输出目录]      默认 ~/Downloads（不存在则用当前目录）
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
-OUT_DIR="${1:-/Users/flash/Downloads/浏览器}"
+OUT_DIR="${1:-$HOME/Downloads}"
+[ -d "$OUT_DIR" ] || OUT_DIR="$PWD"
 VERSION="$(tr -d '[:space:]' < "$SRC/VERSION")"
 ZIP="$OUT_DIR/jacar-archive-v${VERSION}.zip"
+
+# 版本号一致性：SKILL.md 的 metadata.version 必须与 VERSION 相同
+SKILL_VER="$(grep -E '^[[:space:]]+version:[[:space:]]*' "$SRC/SKILL.md" | head -1 | sed -E 's/.*version:[[:space:]]*//; s/[[:space:]]*$//')"
+if [ "$VERSION" != "$SKILL_VER" ]; then
+  echo "✗ 版本号不一致：VERSION=$VERSION  SKILL.md=$SKILL_VER"
+  exit 1
+fi
 
 mkdir -p "$OUT_DIR"
 rm -f "$ZIP"

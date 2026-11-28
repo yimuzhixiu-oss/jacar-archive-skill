@@ -5,13 +5,78 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
+# 进程锁：POSIX 用 fcntl.flock，Windows 用 msvcrt.locking。
+# 两者都是"非阻塞 + 冲突即报 AlreadyRunning"的语义。
+if sys.platform == "win32":                     # pragma: no cover - 平台分支
+    import msvcrt
+    fcntl = None
+else:
+    import fcntl
+    msvcrt = None
+
 SCHEMA = 1
+
+LOCK_TIP = "已有一个 jacar 任务在跑（.jacar/.lock 被占用）"
+
+
+class AlreadyRunning(RuntimeError):
+    pass
+
+
+class _FileLock:
+    """跨平台非阻塞文件锁。
+
+    POSIX：`flock(LOCK_EX | LOCK_NB)`，用 "w" 打开（锁文件内容无意义）。
+    Windows：`msvcrt.locking(LK_NBLCK)`，必须用 "a+b" 打开且锁住 1 个字节，
+    因此文件里要先保证有 1 字节可锁。
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._fh = None
+
+    def acquire(self) -> None:
+        if sys.platform == "win32":             # pragma: no cover - 平台分支
+            fh = open(self.path, "a+b")
+            try:
+                fh.seek(0)
+                if not fh.read(1):
+                    fh.write(b"\0")
+                    fh.flush()
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                fh.close()
+                raise AlreadyRunning(LOCK_TIP)
+            self._fh = fh
+            return
+
+        fh = open(self.path, "w")
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            fh.close()
+            raise AlreadyRunning(LOCK_TIP)
+        self._fh = fh
+
+    def release(self) -> None:
+        if self._fh is None:
+            return
+        try:
+            if sys.platform == "win32":         # pragma: no cover - 平台分支
+                self._fh.seek(0)
+                msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(self._fh, fcntl.LOCK_UN)
+        finally:
+            self._fh.close()
+            self._fh = None
 
 
 def now() -> str:
@@ -29,25 +94,20 @@ class Manifest:
         self.path = self.dir / "manifest.json"
         self.lock_path = self.dir / ".lock"
         self.data: dict = {}
-        self._fh = None
+        self._lock: _FileLock | None = None
 
     # ── 生命周期 ────────────────────────────────────────
     def __enter__(self) -> "Manifest":
         self.dir.mkdir(parents=True, exist_ok=True)
-        self._fh = open(self.lock_path, "w")
-        try:
-            fcntl.flock(self._fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            self._fh.close()
-            raise AlreadyRunning("已有一个 jacar 任务在跑（.jacar/.lock 被占用）")
+        self._lock = _FileLock(self.lock_path)
+        self._lock.acquire()
         self.load()
         return self
 
     def __exit__(self, *exc) -> None:
-        try:
-            fcntl.flock(self._fh, fcntl.LOCK_UN)
-        finally:
-            self._fh.close()
+        if self._lock is not None:
+            self._lock.release()
+            self._lock = None
 
     # ── 读写 ────────────────────────────────────────────
     def load(self) -> None:

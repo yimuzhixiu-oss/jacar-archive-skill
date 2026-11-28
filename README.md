@@ -23,18 +23,40 @@
 
 ## 安装
 
+> **目录名必须是 `jacar-archive`**，不是仓库名 `jacar-archive-skill`。
+> 技能名取自 `SKILL.md` 的 `name` 字段，目录名对不上会加载不到。
+
+macOS / Linux：
+
 ```bash
 git clone https://github.com/yimuzhixiu-oss/jacar-archive-skill.git \
   ~/.workbuddy/skills/jacar-archive
 ```
 
-Claude Code 等其他 agent 放到各自的 skills 目录即可，目录名保持 `jacar-archive`。
+Windows（PowerShell）：
+
+```powershell
+git clone https://github.com/yimuzhixiu-oss/jacar-archive-skill.git `
+  "$env:USERPROFILE\.workbuddy\skills\jacar-archive"
+```
+
+或者下载 zip 解压到同名目录。两种方式的差别：
+
+| 方式 | 更新 | 说明 |
+| --- | --- | --- |
+| `git clone` | `git pull` | 推荐，改动可追溯 |
+| zip 解压 | 重新下载覆盖 | 简单，但本地若有修改会被冲掉 |
+
+Claude Code 等其他 agent 放到各自的 skills 目录即可，目录名同样保持 `jacar-archive`。
 
 依赖：
 
 ```bash
 pip install --user requests beautifulsoup4 Pillow
 ```
+
+脚本跨平台：Windows 没有 `fcntl`，进程锁会自动切到 `msvcrt`，不需要额外安装任何东西。
+输出统一按 UTF-8 处理，不会因控制台是 GBK 而报编码错误。
 
 ## 用法
 
