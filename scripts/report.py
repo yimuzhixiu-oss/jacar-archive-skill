@@ -15,11 +15,65 @@ def _rel(p: Path, base: Path) -> str:
         return str(p)
 
 
+def render_locate(res, root: Path, *, fond: str = "", book_title: str = "") -> str:
+    """定位结果：找到 / 多个 / 没找到，三种都说清下一步怎么走。"""
+    L: list[str] = []
+    if book_title:
+        L.append(f"这一「册」的名字：{book_title}")
+    L.append(f"史料库根目录：{root}")
+    L.append(f"要找的文件夹：簿冊标题第一段「{res.item_name}」")
+    L.append("")
+
+    if res.kind == "found":
+        L.append(f"放置位置：{res.base}")
+        for n in res.notes:
+            L.append(f"  · {n}")
+        return "\n".join(L)
+
+    if res.kind == "ambiguous":
+        L.append(f"找到 {len(res.candidates)} 个同名目录，我不替你决定：")
+        for c in res.candidates[:10]:
+            L.append(f"  · {c}")
+        if len(res.candidates) > 10:
+            L.append(f"  …… 还有 {len(res.candidates) - 10} 个")
+        L.append("")
+        L.append("选一个，重跑：")
+        for c in res.candidates[:3]:
+            L.append(f'  jacar.py plan {fond} --base "{c}"')
+        return "\n".join(L)
+
+    L.append("没找到对应的件名目录。")
+    for n in res.notes:
+        L.append(f"  · {n}")
+    if res.suggested_parent:
+        target = res.suggested_parent / res.item_name
+        L.append("")
+        L.append(f"如果就在这儿建，位置会是：{target}")
+        L.append("确认后加 --create-missing 重跑：")
+        L.append(f"  jacar.py plan {fond} --create-missing")
+        L.append("或者先自己把目录建好，再用 --base 指过来。")
+    else:
+        L.append("")
+        L.append("可以用 --base 直接指定位置：")
+        L.append(f'  jacar.py plan {fond} --base "<件名级目录>"')
+    return "\n".join(L)
+
+
 def render_plan(plan: dict, base: Path) -> str:
     L: list[str] = []
     L.append("我先把打算做的事念给你听，你点头我才动手。\n")
     L.append(f"你给的地址：{plan['source_url']}")
     L.append(f"这一「册」的名字：{plan['book_title']}")
+
+    loc = plan.get("locate")
+    if loc:
+        L.append("")
+        L.append("放置位置是这么定的：")
+        L.append(f"  库根目录：{loc['root']}")
+        L.append(f"  依据：簿冊标题第一段「{loc['item_name']}」{loc.get('why', '')}")
+        L.append(f"  命中：{loc['base']}")
+        L.append("")
+
     n_items = len(plan["items"])
     L.append(f"材料总数：{plan['total']} 条（第 1 条是这册书本身，只用来起名字和导清单，不能下载）\n")
 

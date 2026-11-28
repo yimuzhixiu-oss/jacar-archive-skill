@@ -54,6 +54,33 @@ def variant_key(s: str) -> str:
     return nfc(s).translate(VARIANT).replace(" ", "").replace("\u3000", "")
 
 
+# 层级目录名专用的补充映射（补 VARIANT 缺的字）
+EXTRA_VARIANT = str.maketrans({"罗": "羅", "内": "內", "册": "冊", "会": "會"})
+
+# 目录名里的标点与空白，比较时一律忽略
+_PUNCT = re.compile(r"[ \u3000、，,．.·・（）()「」『』〔〕\[\]【】〜~/／\-‐—－:：;；]")
+
+# 搜索时整棵跳过的目录名
+SKIP_DIRS = {
+    "_処理用", "_作業用", "_工作用", "_tmp", "trash", "Trash",
+    "$RECYCLE.BIN", "node_modules", "__pycache__",
+}
+
+
+def hier_key(s: str) -> str:
+    """层级目录名比较键：NFC → 全角数字转半角 → 新字体归旧 → 去空白与标点。
+
+    用于把 JACAR 階層（`１門　政治`、`６類　諸外国内政`）与本地目录
+    （`1門 政治`、`6類 駐外國內政`）拉到同一口径上比较。
+    注意：`諸外` vs `駐外` 属于用词不同，本函数归一不了。
+    """
+    return _PUNCT.sub("", nfc(s).translate(FW2HW).translate(VARIANT).translate(EXTRA_VARIANT))
+
+
+def is_noise_dir(name: str, extra: set[str] | None = None) -> bool:
+    return name.startswith(".") or name in SKIP_DIRS or bool(extra and name in extra)
+
+
 # ── 序号 ────────────────────────────────────────────────
 def derive_numbering(
     title: str,

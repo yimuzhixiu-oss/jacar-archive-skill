@@ -41,32 +41,42 @@ pip install --user requests beautifulsoup4 Pillow
 ```bash
 S=~/.workbuddy/skills/jacar-archive/scripts/jacar.py
 
+# 0. 设一次史料库根目录（之后就不用传路径了）
+python3 $S config --root "/path/to/史料"
+
 # 1. 体检（约 10 秒）
 python3 $S probe B03051171200
 
 # 2. 干跑，只出清单不动手
-python3 $S plan <链接或fond号> --base "…/露國革命一件"
+python3 $S plan <链接或fond号>
 
 # 3. 确认后执行
 python3 $S run --plan "…/.jacar/plan-B03051171200.json" --confirm
 
 # 4. 只读检查
-python3 $S verify --base "…"
+python3 $S verify
 ```
 
-`--base` 指向「件名」级目录，脚本只在它下面建簿冊与条目目录，不碰上级路径。
+`plan` 会自动在库里找该簿冊所属的「件名」目录，并在清单开头写明依据：
 
-### 存一次默认值
+```
+放置位置是这么定的：
+  库根目录：/path/to/史料
+  依据：簿冊标题第一段「露国革命一件」，库里「露國革命一件」只此一处
+  命中：…/3項 歐羅巴、其他/露國革命一件
+```
 
-反复输入的参数可以固化到本机（`~/.jacar/config.json`，不进版本库）：
+找不到唯一结果时会停下来列候选，不会自己猜。先看会定到哪而不产生文件：
 
 ```bash
-python3 $S config --base "<件名级目录>" --delay 2
-python3 $S config            # 查看
-python3 $S config --reset    # 清除
+python3 $S locate <链接或fond号>
 ```
 
-之后 `plan` / `verify` 可以省略 `--base` 和 `--delay`。命令行参数始终优先于配置。
+库结构特殊时仍可手动指定，行为与旧版一致：
+
+```bash
+python3 $S plan <链接或fond号> --base "<件名级目录>"
+```
 
 把已下载的 PDF 改成正文命名（只重命名，不重下）：
 

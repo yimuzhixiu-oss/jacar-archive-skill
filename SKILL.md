@@ -48,13 +48,32 @@ $PY scripts/jacar.py probe <链接或fond号>
 ### 2. 干跑出清单
 
 ```bash
-$PY scripts/jacar.py plan <链接或fond号> --base "<簿冊所在的上级目录>"
+$PY scripts/jacar.py plan <链接或fond号>
 ```
 
-`--base` 指向**「件名」级目录**（如 `…/露國革命一件`），脚本只在它下面建簿冊与条目目录。
-如果已用 `config` 存过默认值，`--base` 可以省略。
+只要配过一次库根目录（`config --root`），这一步不用再传路径——脚本会按簿冊标题
+第一段在库里找对应的「件名」目录，并把"依据什么、定到哪"打在清单开头。
+
+找不到唯一结果时它会停下来问你，不会自己猜：
+
+| 情况 | 表现 |
+| --- | --- |
+| 找到唯一一个 | 正常出清单，开头写明定位依据 |
+| 找到多个同名 | 列出候选 + 可复制的 `--base` 命令，退出码 2 |
+| 库里没有这个件名 | 给出建议位置，提示加 `--create-missing` 或自己建好再用 `--base` |
+
+想先看看会定到哪、不产生任何文件：`$PY scripts/jacar.py locate <链接或fond号>`
 
 把输出的中文清单**原样转述给用户**，等他确认。
+
+### 2b. 手动指定（跳过自动定位）
+
+```bash
+$PY scripts/jacar.py plan <链接或fond号> --base "<件名级目录>"
+```
+
+`--base` 指向簿冊的上级「件名」目录（如 `…/露國革命一件`）。给了它就不扫盘，
+行为与旧版完全一致。库结构特殊或自动定位判错时用这条。
 
 ### 3. 用户确认后执行
 
@@ -75,13 +94,30 @@ $PY scripts/jacar.py verify --base "<base>"
 常用参数可以存一次，之后省略。配置写在 `~/.jacar/config.json`，不进版本库。
 
 ```bash
-$PY scripts/jacar.py config                                  # 查看当前
-$PY scripts/jacar.py config --base "<件名级目录>" --delay 2    # 设置
-$PY scripts/jacar.py config --reset                          # 清除
+$PY scripts/jacar.py config --root "<史料库最外层目录>"   # 必须配这个，才能自动定位
+$PY scripts/jacar.py config                              # 查看当前
+$PY scripts/jacar.py config --delay 3                    # 改单项
+$PY scripts/jacar.py config --unset base                 # 删某项
+$PY scripts/jacar.py config --reset                      # 全部清除
 ```
 
-可存的键：`base`、`delay`、`csv_name`、`meta_name`、`pdf_name`、`max_name_bytes`、`book_dir`。
-命令行参数始终优先于配置。
+可存的键：`root`、`base`、`delay`、`csv_name`、`meta_name`、`pdf_name`、`max_name_bytes`、`book_dir`。
+
+`root` 是史料库的最外层目录（如 `/path/to/史料`），skill 代码里不含任何具体路径，换机器只改这里。
+
+优先级：`--base` > 自动定位 > 配置里的 `base`。配了 `root` 之后，`base` 会被忽略；
+想回到"固定位置"模式，`config --base "<目录>"` 并把 `root` 删掉。
+
+## 自动定位的边界
+
+用簿冊标题**第一段**在库里找同名目录（`露国革命一件` ↔ `露國革命一件`），
+比较时归一繁体、全角数字与空格标点。
+
+**不用階層逐级拼路径**——JACAR 階層与本地目录存在用词差异（`６類　諸外国内政`
+vs `6類 駐外國內政`），逐级走会在「類」这一级断掉。階層只在"找到多个同名"时
+用来消歧。
+
+搜索会跳过 `_処理用`、`trash`、`.` 开头等噪声目录；深度上限 8 层。
 
 ## 硬约束
 
@@ -96,7 +132,9 @@ $PY scripts/jacar.py config --reset                          # 清除
 
 | 参数 | 作用 |
 | --- | --- |
-| `--base` | 簿冊的上级目录（必填） |
+| `--base` | 件名级目录；不传则按 `root` 自动定位 |
+| `--root` | 临时指定史料库根目录，覆盖配置 |
+| `--create-missing` | 件名目录不存在时，允许按建议位置新建 |
 | `--book-dir` | 直接指定簿冊目录，覆盖自动推导；繁简不一致时用 |
 | `--numbering append\|raw` | append＝主序号＋「／N」追加；raw＝全照原文 |
 | `--pdf-name body\|dir` | body＝PDF 用标题正文（默认）；dir＝与文件夹同名 |

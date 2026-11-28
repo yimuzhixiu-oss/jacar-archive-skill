@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import report                                              # noqa: E402
 from client import BASE, RateLimited, make_client          # noqa: E402
 from fetcher import download_pdf, export_csv, write_meta_md  # noqa: E402
+from locator import find_item_dir                          # noqa: E402
 from naming import (                                       # noqa: E402
     apply_parent_padding, compose_book_names, compose_title_body,
     compose_with_profile, fit_name, load_profile, resolve_book_dir, sanitize,
@@ -149,18 +150,54 @@ def cmd_probe(args) -> int:
     return 0
 
 
+# ── locate（只读，不写任何文件）──────────────────────────
+def cmd_locate(args) -> int:
+    fond = parse_target(args.target)
+    root = _resolve_root(args, load_config())
+    if root is None:
+        raise SystemExit(
+            '没有库根目录。先设一次：jacar.py config --root "<史料库最外层目录>"'
+        )
+
+    client = make_client(delay=args.delay)
+    records, _ = fetch_all(client, fond)
+    book, _items = split_book(records)
+    if book is None:
+        raise SystemExit("检索页没有任何结果。")
+
+    res = find_item_dir(root, book.title, [n.name for n in book.hierarchy])
+    print(report.render_locate(res, root, fond=fond, book_title=book.title))
+    return 0 if res.kind == "found" else 2
+
+
 # ── plan ────────────────────────────────────────────────
+def _resolve_root(args, cfg: dict) -> Path | None:
+    raw = getattr(args, "root", None) or cfg.get("root")
+    if not raw:
+        return None
+    p = Path(raw).expanduser().resolve()
+    return p if p.is_dir() else None
+
+
 def cmd_plan(args) -> int:
     fond = parse_target(args.target)
-    if not args.base:
+    cfg = load_config()
+    root = _resolve_root(args, cfg)
+
+    explicit_base: Path | None = None
+    # 命令行 --base 优先；只有在没配 root 时才退回配置里的 base
+    base_arg = args.base or (cfg.get("base") if root is None else None)
+    if base_arg:
+        explicit_base = Path(base_arg).expanduser().resolve()
+        if not explicit_base.is_dir():
+            raise SystemExit(f"base 目录不存在：{explicit_base}")
+
+    if explicit_base is None and root is None:
         raise SystemExit(
-            "没有指定 --base，本机也还没存默认值。\n"
-            '可以设一次，以后就不用再传：\n'
-            '  jacar.py config --base "<簿冊所在的「件名」级目录>"'
+            "没有指定 --base，本机也没配史料库根目录。二选一：\n"
+            '  jacar.py config --root "<史料库最外层目录>"    # 以后自动定位\n'
+            '  jacar.py plan <target> --base "<件名级目录>"'
         )
-    base = Path(args.base).expanduser().resolve()
-    if not base.is_dir():
-        raise SystemExit(f"base 目录不存在：{base}")
 
     client = make_client(delay=args.delay)
     records, total = fetch_all(client, fond)
@@ -168,10 +205,37 @@ def cmd_plan(args) -> int:
     if book is None:
         raise SystemExit("检索页没有任何结果。")
 
+    warnings: list[str] = []
+    locate_info = None
+
+    if explicit_base is not None:
+        base = explicit_base
+    else:
+        # 自动定位：用簿冊标题第一段在库中找同名件名目录
+        res = find_item_dir(root, book.title, [n.name for n in book.hierarchy])
+        if res.kind == "ambiguous":
+            print(report.render_locate(res, root, fond=fond, book_title=book.title))
+            return 2
+        if res.kind == "missing":
+            allow_new = getattr(args, "create_missing", False)
+            if not allow_new or res.suggested_parent is None:
+                print(report.render_locate(res, root, fond=fond, book_title=book.title))
+                return 2
+            base = res.suggested_parent / res.item_name
+            warnings.append(f"「{res.item_name}」目录不存在，按 --create-missing 新建")
+        else:
+            base = res.base
+        locate_info = {
+            "mode": "auto",
+            "root": str(root),
+            "item_name": res.item_name,
+            "base": str(base),
+            "why": ("，" + "；".join(res.notes)) if res.notes else "",
+        }
+
     profile = load_profile(args.profiles or DEFAULT_PROFILES, fond)
     book_dir, notes = resolve_book_dir(base, book.title, override=args.book_dir)
 
-    warnings: list[str] = []
     if not book_dir.exists():
         warnings.append(f"「{book_dir.name}」还不存在，会新建")
 
@@ -238,7 +302,8 @@ def cmd_plan(args) -> int:
     book_existing = existing_refcodes(book_dir)
     plan = {
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "schema": 1,
+        "schema": 2,
+        "locate": locate_info,
         "source_url": f"{BASE}/aj/search?fond={fond}",
         "fond": fond,
         "book_title": book.title,
@@ -501,7 +566,8 @@ CONFIG_DIR = Path.home() / ".jacar"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
 CONFIG_KEYS = {
-    "base": "默认 base 目录（簿冊所在的「件名」级目录）",
+    "root": "史料库最外层目录（自动定位的起点）",
+    "base": "固定件名级目录（设了就不自动定位，一般留空）",
     "delay": "请求间隔秒数",
     "csv_name": "材料清单文件名",
     "meta_name": "目錄文件名",
@@ -537,6 +603,16 @@ def cmd_config(args) -> int:
         print("已清除本机配置，之后需要每次传参数。")
         return 0
 
+    if getattr(args, "unset", None):
+        key = args.unset
+        if key in cfg:
+            cfg.pop(key)
+            save_config(cfg)
+            print(f"已从配置里删掉 {key}。")
+        else:
+            print(f"配置里没有 {key}。")
+        return 0
+
     changed = False
     for key in CONFIG_KEYS:
         val = getattr(args, key, None)
@@ -565,6 +641,9 @@ def cmd_config(args) -> int:
         if k in cfg:
             print(f"  {k:16s} = {cfg[k]}")
             print(f"  {'':16s}   {desc}")
+    if cfg.get("root") and cfg.get("base"):
+        print("\n注意：`base` 在的话会跳过自动定位；想用 root 自动找位置就 "
+              "`config --unset base`。")
     return 0
 
 
@@ -583,10 +662,18 @@ def main() -> int:
     p.add_argument("target")
     p.set_defaults(func=cmd_probe)
 
+    p = sub.add_parser("locate", help="只看会自动定位到哪，不写任何文件")
+    p.add_argument("target")
+    p.add_argument("--root", default=None, help="史料库最外层目录，覆盖配置")
+    p.set_defaults(func=cmd_locate)
+
     p = sub.add_parser("plan", help="干跑：只算不动手，出清单")
     p.add_argument("target")
-    p.add_argument("--base", default=cfg.get("base"),
-                   help="簿冊所在的「件名」级目录；不传则用本机配置")
+    p.add_argument("--base", default=None,
+                   help="件名级目录；不传则按库根目录自动定位")
+    p.add_argument("--root", default=None, help="史料库最外层目录，覆盖配置")
+    p.add_argument("--create-missing", action="store_true",
+                   help="件名目录不存在时，允许按建议位置新建")
     p.add_argument("--book-dir", default=cfg.get("book_dir"),
                    help="直接指定簿冊目录，覆盖自动推导")
     p.add_argument("--csv-name", default=cfg.get("csv_name", DEFAULT_CSV))
@@ -616,6 +703,7 @@ def main() -> int:
     p.set_defaults(func=cmd_verify)
 
     p = sub.add_parser("config", help="查看或修改本机默认设置")
+    p.add_argument("--root", default=None, help="史料库最外层目录")
     p.add_argument("--base", default=None)
     p.add_argument("--delay", type=float, default=None)
     p.add_argument("--csv-name", default=None)
@@ -623,6 +711,7 @@ def main() -> int:
     p.add_argument("--pdf-name", choices=["body", "dir"], default=None)
     p.add_argument("--max-name-bytes", type=int, default=None)
     p.add_argument("--book-dir", default=None)
+    p.add_argument("--unset", default=None, metavar="键名", help="删除某一项设置")
     p.add_argument("--reset", action="store_true", help="清除全部设置")
     p.set_defaults(func=cmd_config)
 
