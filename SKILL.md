@@ -104,9 +104,13 @@ $PY scripts/jacar.py config --unset base                 # 删某项
 $PY scripts/jacar.py config --reset                      # 全部清除
 ```
 
-可存的键：`root`、`base`、`delay`、`csv_name`、`meta_name`、`pdf_name`、`max_name_bytes`、`book_dir`。
+可存的键：`root`、`base`、`oldstyle_item_names`、`delay`、`csv_name`、`meta_name`、`pdf_name`、`max_name_bytes`、`book_dir`。
 
 `root` 是史料库的最外层目录（如 `/path/to/史料`），skill 代码里不含任何具体路径，换机器只改这里。
+
+`oldstyle_item_names` 开启后，`--create-missing` 新建件名目录时会把标题转成旧字体
+（`欧州戦争…露国情報雑纂` → `歐州戰爭…露國情報雜纂`），与库里既有命名保持一致。
+只影响新建的那一层目录名，不改文件内容。
 
 优先级：`--base` > 自动定位 > 配置里的 `base`。配了 `root` 之后，`base` 会被忽略；
 想回到"固定位置"模式，`config --base "<目录>"` 并把 `root` 删掉。

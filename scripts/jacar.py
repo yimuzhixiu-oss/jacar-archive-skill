@@ -26,7 +26,7 @@ from locator import find_item_dir                          # noqa: E402
 from naming import (                                       # noqa: E402
     apply_parent_padding, compose_book_names, compose_title_body,
     compose_with_profile, fit_name, load_profile, resolve_book_dir, sanitize,
-    variant_key,
+    to_old_style, variant_key,
 )
 from parser import REF_RE, parse_search                    # noqa: E402
 from store import AlreadyRunning, Manifest                 # noqa: E402
@@ -224,7 +224,9 @@ def cmd_plan(args) -> int:
             if not allow_new or res.suggested_parent is None:
                 print(report.render_locate(res, root, fond=fond, book_title=book.title))
                 return 2
-            base = res.suggested_parent / res.item_name
+            base = res.suggested_parent / sanitize(
+                to_old_style(res.item_name) if cfg.get("oldstyle_item_names") else res.item_name
+            )
             warnings.append(f"「{res.item_name}」目录不存在，按 --create-missing 新建")
         else:
             base = res.base
@@ -571,6 +573,7 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 CONFIG_KEYS = {
     "root": "史料库最外层目录（自动定位的起点）",
     "base": "固定件名级目录（设了就不自动定位，一般留空）",
+    "oldstyle_item_names": "新建件名目录时转成旧字体（与库里既有命名一致）",
     "delay": "请求间隔秒数",
     "csv_name": "材料清单文件名",
     "meta_name": "目錄文件名",
@@ -716,6 +719,8 @@ def main() -> int:
     p.add_argument("--pdf-name", choices=["body", "dir"], default=None)
     p.add_argument("--max-name-bytes", type=int, default=None)
     p.add_argument("--book-dir", default=None)
+    p.add_argument("--oldstyle-item-names", action="store_true", default=None,
+                   help="新建件名目录时转成旧字体")
     p.add_argument("--unset", default=None, metavar="键名", help="删除某一项设置")
     p.add_argument("--reset", action="store_true", help="清除全部设置")
     p.set_defaults(func=cmd_config)
